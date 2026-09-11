@@ -112,6 +112,41 @@ prompt_for_frequency() {
   done
 }
 
+prompt_for_distance_threshold() {
+  local current_value="$1"
+  local answer
+  local new_value
+  local number_pattern='^-?[0-9]+([.][0-9]+)?$'
+
+  if [[ "$current_value" =~ $number_pattern ]]; then
+    printf 'The distance threshold is currently %s%%. Keep this value? [Y/n] ' \
+      "$current_value" >&3
+    IFS= read -r answer <&3 || exit 1
+
+    case "$answer" in
+      ""|y|Y|yes|YES|Yes)
+        return
+        ;;
+    esac
+  elif [[ -n "$current_value" ]]; then
+    printf 'The configured distance threshold "%s" is invalid.\n' \
+      "$current_value" >&3
+  fi
+
+  while true; do
+    printf 'Enter distance threshold percentage (for example, 0 or -5.5): ' >&3
+    IFS= read -r new_value <&3 || exit 1
+
+    if [[ "$new_value" =~ $number_pattern ]]; then
+      set_config_value "DISTANCE_THRESHOLD" "$new_value"
+      DISTANCE_THRESHOLD="$new_value"
+      return
+    fi
+
+    printf 'Distance threshold must be a number.\n' >&3
+  done
+}
+
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR"
 
@@ -168,6 +203,7 @@ prompt_for_value \
   "${TELEGRAM_CHAT_ID:-}" \
   false
 prompt_for_frequency "${FREQUENCY_MINUTES:-}"
+prompt_for_distance_threshold "${DISTANCE_THRESHOLD:-}"
 
 exec 3>&-
 

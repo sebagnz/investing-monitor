@@ -4,6 +4,7 @@
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_CHAT_ID=""
 FREQUENCY_MINUTES=30
+DISTANCE_THRESHOLD=2
 
 # Add other settings here as needed.
 # Example:

@@ -15,6 +15,12 @@ source "$CONFIG_FILE"
 
 : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
 : "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is not set}"
+: "${DISTANCE_THRESHOLD:?DISTANCE_THRESHOLD is not set}"
+
+if [[ ! "$DISTANCE_THRESHOLD" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+  echo "DISTANCE_THRESHOLD must be a number." >&2
+  exit 1
+fi
 
 for dependency in curl jq; do
   if ! command -v "$dependency" >/dev/null 2>&1; then
@@ -34,7 +40,7 @@ DATA=$(
 )
 
 RESULT=$(
-  echo "$DATA" | jq -r '
+  echo "$DATA" | jq -r --argjson threshold "$DISTANCE_THRESHOLD" '
     .chart.result[0] as $r
     | [$r.indicators.quote[0].close[] | select(. != null)] as $c
     | $c[-1] as $price
@@ -54,9 +60,18 @@ RESULT=$(
         end
       ) as $rsi14
     | ((($price / $sma200) - 1) * 100) as $distance
-    | "S&P 500\n\nPrice: \($price | tostring)\nSMA 200: \($sma200 | tostring)\nDistance: \($distance | tostring)%\nRSI 14: \($rsi14 | tostring)"
+    | if $distance < $threshold then
+        "S&P 500\n\nPrice: \($price | tostring)\nSMA 200: \($sma200 | tostring)\nDistance: \($distance | tostring)%\nRSI 14: \($rsi14 | tostring)"
+      else
+        empty
+      end
   '
 )
+
+if [[ -z "$RESULT" ]]; then
+  echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Distance is not below ${DISTANCE_THRESHOLD}%; no alert sent"
+  exit 0
+fi
 
 curl -fsSL \
   -X POST \
