@@ -41,6 +41,25 @@ DATA=$(
 
 RESULT=$(
   echo "$DATA" | jq -r --argjson threshold "$DISTANCE_THRESHOLD" '
+    def fixed2:
+      ((. * 100 | round) / 100 | tostring)
+      | if contains(".") then
+          . + ("0" * (2 - (split(".")[1] | length)))
+        else
+          . + ".00"
+        end;
+    def with_commas:
+      split(".") as $parts
+      | ($parts[0]
+          | explode
+          | reverse
+          | [range(0; length; 3) as $i
+              | .[$i:$i + 3]
+              | reverse
+              | implode]
+          | reverse
+          | join(",")) + "." + $parts[1];
+
     .chart.result[0] as $r
     | [$r.indicators.quote[0].close[] | select(. != null)] as $c
     | $c[-1] as $price
@@ -61,7 +80,16 @@ RESULT=$(
       ) as $rsi14
     | ((($price / $sma200) - 1) * 100) as $distance
     | if $distance < $threshold then
-        "S&P 500\n\nPrice: \($price | tostring)\nSMA 200: \($sma200 | tostring)\nDistance: \($distance | tostring)%\nRSI 14: \($rsi14 | tostring)"
+        (if $distance >= 0 then "+" else "" end) as $distance_sign
+        | (if $rsi14 >= 70 then "Overbought 🔥"
+           elif $rsi14 <= 30 then "Oversold 🧊"
+           else "Neutral ⚖️"
+           end) as $rsi_status
+        | "<b>⚠️ S&amp;P 500 Alert</b>\n\n"
+          + "💵 <b>Price:</b> \($price | fixed2 | with_commas)\n"
+          + "📈 <b>200-day SMA:</b> \($sma200 | fixed2 | with_commas)\n"
+          + "📏 <b>Distance:</b> \($distance_sign)\($distance | fixed2)%\n"
+          + "🌡️ <b>RSI (14):</b> \($rsi14 | fixed2) · \($rsi_status)"
       else
         empty
       end
@@ -77,6 +105,7 @@ curl -fsSL \
   -X POST \
   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
   -d "chat_id=${TELEGRAM_CHAT_ID}" \
+  -d "parse_mode=HTML" \
   --data-urlencode "text=${RESULT}"
 
 echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Done"
