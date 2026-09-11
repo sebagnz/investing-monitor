@@ -1,0 +1,9 @@
+# Copy/edit this file at:
+# ~/.config/investing-monitor/config
+
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+
+# Add other settings here as needed.
+# Example:
+# SYMBOL="^GSPC"
