@@ -13,6 +13,9 @@ fi
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
 
+: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
+: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is not set}"
+
 for dependency in curl jq; do
   if ! command -v "$dependency" >/dev/null 2>&1; then
     echo "Missing dependency: $dependency" >&2
@@ -20,24 +23,45 @@ for dependency in curl jq; do
   fi
 done
 
-echo "$(date -Is): Running SP500 monitor"
+echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Running SP500 monitor"
 
-# -------------------------------------------------------------------
-# Put your monitoring logic here.
-#
-# Example:
-#
-# response="$(curl -fsSL 'https://example.com/api')"
-# price="$(jq -r '.price' <<< "$response")"
-#
-# message="S&P 500 price: $price"
-#
-# curl -fsSL \
-#   -X POST \
-#   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-#   -d "chat_id=${TELEGRAM_CHAT_ID}" \
-#   --data-urlencode "text=${message}" \
-#   >/dev/null
-# -------------------------------------------------------------------
+YAHOO_URL="https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1y"
 
-echo "$(date -Is): Done"
+DATA=$(
+  curl -fsSL \
+    -A "Mozilla/5.0" \
+    "$YAHOO_URL"
+)
+
+RESULT=$(
+  echo "$DATA" | jq -r '
+    .chart.result[0] as $r
+    | [$r.indicators.quote[0].close[] | select(. != null)] as $c
+    | $c[-1] as $price
+    | (($c[-200:] | add) / 200) as $sma200
+    | $c[-15:] as $rsi_closes
+    | [
+        range(1; $rsi_closes | length)
+        | $rsi_closes[.] - $rsi_closes[.-1]
+      ] as $changes
+    | ([$changes[] | select(. > 0)] | (add // 0) / 14) as $avg_gain
+    | ([$changes[] | select(. < 0) | -.] | (add // 0) / 14) as $avg_loss
+    | (
+        if $avg_loss == 0 then
+          100
+        else
+          100 - (100 / (1 + ($avg_gain / $avg_loss)))
+        end
+      ) as $rsi14
+    | ((($price / $sma200) - 1) * 100) as $distance
+    | "S&P 500\n\nPrice: \($price | tostring)\nSMA 200: \($sma200 | tostring)\nDistance: \($distance | tostring)%\nRSI 14: \($rsi14 | tostring)"
+  '
+)
+
+curl -fsSL \
+  -X POST \
+  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  -d "chat_id=${TELEGRAM_CHAT_ID}" \
+  --data-urlencode "text=${RESULT}"
+
+echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Done"

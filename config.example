@@ -3,6 +3,7 @@
 
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_CHAT_ID=""
+FREQUENCY_MINUTES=30
 
 # Add other settings here as needed.
 # Example:
