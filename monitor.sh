@@ -63,6 +63,8 @@ RESULT=$(
     .chart.result[0] as $r
     | [$r.indicators.quote[0].close[] | select(. != null)] as $c
     | $c[-1] as $price
+    | $c[-2] as $previous_close
+    | ((($price / $previous_close) - 1) * 100) as $daily_variation
     | (($c[-200:] | add) / 200) as $sma200
     | $c[-15:] as $rsi_closes
     | [
@@ -81,14 +83,16 @@ RESULT=$(
     | ((($price / $sma200) - 1) * 100) as $distance
     | if $distance < $threshold then
         (if $distance >= 0 then "+" else "" end) as $distance_sign
+        | (if $daily_variation >= 0 then "+" else "" end) as $variation_sign
+        | (if $daily_variation >= 0 then "🟢" else "🔴" end) as $variation_indicator
         | (if $rsi14 >= 70 then "Overbought 🔥"
            elif $rsi14 <= 30 then "Oversold 🧊"
+           elif $rsi14 <= 40 then "Near oversold ⚠️"
            else "Neutral ⚖️"
            end) as $rsi_status
-        | "<b>⚠️ S&amp;P 500 Alert</b>\n\n"
-          + "💵 <b>Price:</b> \($price | fixed2 | with_commas)\n"
-          + "📈 <b>200-day SMA:</b> \($sma200 | fixed2 | with_commas)\n"
-          + "📏 <b>Distance:</b> \($distance_sign)\($distance | fixed2)%\n"
+        | "<b>S&amp;P 500 Alert</b>\n\n"
+          + "💵 <b>Price:</b> \($price | fixed2 | with_commas) \($variation_indicator) \($variation_sign)\($daily_variation | fixed2)%\n"
+          + "📈 <b>200-day SMA:</b> \($sma200 | fixed2 | with_commas) (\($distance_sign)\($distance | fixed2)%)\n"
           + "🌡️ <b>RSI (14):</b> \($rsi14 | fixed2) · \($rsi_status)"
       else
         empty
