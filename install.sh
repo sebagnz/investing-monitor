@@ -189,6 +189,7 @@ fi
 
 # shellcheck disable=SC1090,SC1091
 source "${CONFIG_DIR}/config"
+SYMBOLS="${SYMBOLS:-^GSPC,^NDX}"
 
 echo
 echo "Configure the monitor:"
@@ -204,6 +205,11 @@ prompt_for_value \
   false
 prompt_for_frequency "${FREQUENCY_MINUTES:-}"
 prompt_for_distance_threshold "${DISTANCE_THRESHOLD:-}"
+prompt_for_value \
+  "SYMBOLS" \
+  "Yahoo Finance symbols (comma-separated)" \
+  "$SYMBOLS" \
+  false
 
 exec 3>&-
 

@@ -3,10 +3,11 @@ set -euo pipefail
 
 case " $* " in
   *query1.finance.yahoo.com*)
+    printf '%s\n' "$@" >> "$YAHOO_REQUEST_LOG"
     cat "$YAHOO_FIXTURE"
     ;;
   *api.telegram.org*)
-    printf '%s\n' "$@" > "$TELEGRAM_REQUEST_LOG"
+    printf '%s\n' "$@" >> "$TELEGRAM_REQUEST_LOG"
     printf '{"ok":true}\n'
     ;;
   *)

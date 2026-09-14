@@ -17,6 +17,7 @@ source "$CONFIG_FILE"
 : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
 : "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is not set}"
 : "${DISTANCE_THRESHOLD:?DISTANCE_THRESHOLD is not set}"
+SYMBOLS="${SYMBOLS:-^GSPC,^NDX}"
 
 if [[ ! "$DISTANCE_THRESHOLD" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
   echo "DISTANCE_THRESHOLD must be a number." >&2
@@ -33,18 +34,46 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Running SP500 monitor"
+display_name_for_symbol() {
+  case "$1" in
+    "^GSPC") printf 'S&amp;P 500' ;;
+    "^NDX") printf 'Nasdaq-100' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 
-YAHOO_URL="https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1y"
+monitor_symbol() {
+  local symbol="$1"
+  local display_name
+  local encoded_symbol
+  local yahoo_url
+  local data
+  local market_status
+  local result
+  local telegram_response
 
-DATA=$(
-  "$CURL_COMMAND" -fsSL \
-    -A "Mozilla/5.0" \
-    "$YAHOO_URL"
-)
+  if [[ ! "$symbol" =~ ^[A-Za-z0-9._^=-]+$ ]]; then
+    echo "Invalid Yahoo Finance symbol: $symbol" >&2
+    return 1
+  fi
 
-MARKET_STATUS=$(
-  echo "$DATA" | jq -r '
+  display_name="$(display_name_for_symbol "$symbol")"
+  encoded_symbol="$(jq -rn --arg symbol "$symbol" '$symbol | @uri')"
+  yahoo_url="https://query1.finance.yahoo.com/v8/finance/chart/${encoded_symbol}?interval=1d&range=1y"
+
+  echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Checking ${symbol}"
+
+  if ! data=$(
+    "$CURL_COMMAND" -fsSL \
+      -A "Mozilla/5.0" \
+      "$yahoo_url"
+  ); then
+    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Failed to fetch ${symbol}" >&2
+    return 1
+  fi
+
+  market_status=$(
+    echo "$data" | jq -r '
     .chart.result[0].meta.currentTradingPeriod.regular as $regular
     | if (($regular.start | type) != "number" or ($regular.end | type) != "number") then
         "unknown"
@@ -53,20 +82,22 @@ MARKET_STATUS=$(
       else
         "closed"
       end
-  '
-)
+    '
+  )
 
-if [[ "$MARKET_STATUS" != "open" ]]; then
-  if [[ "$MARKET_STATUS" == "closed" ]]; then
-    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Market is closed; no alert sent"
-  else
-    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Could not determine market status; no alert sent" >&2
+  if [[ "$market_status" != "open" ]]; then
+    if [[ "$market_status" == "closed" ]]; then
+      echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): ${symbol} market is closed; no alert sent"
+    else
+      echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Could not determine ${symbol} market status; no alert sent" >&2
+    fi
+    return 0
   fi
-  exit 0
-fi
 
-RESULT=$(
-  echo "$DATA" | jq -r --argjson threshold "$DISTANCE_THRESHOLD" '
+  result=$(
+    echo "$data" | jq -r \
+      --argjson threshold "$DISTANCE_THRESHOLD" \
+      --arg display_name "$display_name" '
     def fixed2:
       ((. * 100 | round) / 100 | tostring)
       | if contains(".") then
@@ -116,26 +147,55 @@ RESULT=$(
            elif $rsi14 <= 40 then "Near oversold ⚠️"
            else "Neutral ⚖️"
            end) as $rsi_status
-        | "<b>S&amp;P 500 Alert</b>\n\n"
+        | "<b>\($display_name) Alert</b>\n\n"
           + "💵 <b>Price:</b> \($price | fixed2 | with_commas) \($variation_indicator) \($variation_sign)\($daily_variation | fixed2)%\n"
           + "📈 <b>200-day SMA:</b> \($sma200 | fixed2 | with_commas) (\($distance_sign)\($distance | fixed2)%)\n"
           + "🌡️ <b>RSI (14):</b> \($rsi14 | fixed2) · \($rsi_status)"
       else
         empty
       end
-  '
-)
+    '
+  )
 
-if [[ -z "$RESULT" ]]; then
-  echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Distance is not below ${DISTANCE_THRESHOLD}%; no alert sent"
-  exit 0
+  if [[ -z "$result" ]]; then
+    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): ${symbol} distance is not below ${DISTANCE_THRESHOLD}%; no alert sent"
+    return 0
+  fi
+
+  if ! telegram_response=$(
+    "$CURL_COMMAND" -fsSL \
+      -X POST \
+      "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${TELEGRAM_CHAT_ID}" \
+      -d "parse_mode=HTML" \
+      --data-urlencode "text=${result}"
+  ); then
+    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Failed to send ${symbol} alert" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$telegram_response"
+  echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): ${symbol} done"
+}
+
+echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Running investing monitor"
+
+IFS=',' read -r -a tracked_symbols <<< "$SYMBOLS"
+had_error=false
+
+for symbol in "${tracked_symbols[@]}"; do
+  symbol="${symbol//[[:space:]]/}"
+  if [[ -z "$symbol" ]]; then
+    echo "SYMBOLS contains an empty symbol." >&2
+    had_error=true
+    continue
+  fi
+
+  if ! monitor_symbol "$symbol"; then
+    had_error=true
+  fi
+done
+
+if [[ "$had_error" == true ]]; then
+  exit 1
 fi
-
-"$CURL_COMMAND" -fsSL \
-  -X POST \
-  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-  -d "chat_id=${TELEGRAM_CHAT_ID}" \
-  -d "parse_mode=HTML" \
-  --data-urlencode "text=${RESULT}"
-
-echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Done"

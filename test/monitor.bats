@@ -4,6 +4,7 @@ setup() {
   PROJECT_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   export HOME="$BATS_TEST_TMPDIR/home"
   export YAHOO_FIXTURE="$BATS_TEST_TMPDIR/yahoo.json"
+  export YAHOO_REQUEST_LOG="$BATS_TEST_TMPDIR/yahoo-request.log"
   export TELEGRAM_REQUEST_LOG="$BATS_TEST_TMPDIR/telegram-request.log"
   export CURL_COMMAND="$PROJECT_ROOT/test/helpers/curl"
 
@@ -12,12 +13,29 @@ setup() {
 
 write_config() {
   local threshold="${1:-0}"
+  local symbols="${2:-^GSPC}"
 
   cat > "$HOME/.config/investing-monitor/config" <<EOF
 TELEGRAM_BOT_TOKEN="test-token"
 TELEGRAM_CHAT_ID="test-chat"
 DISTANCE_THRESHOLD="$threshold"
+SYMBOLS="$symbols"
 EOF
+}
+
+@test "tracks the S&P 500 and Nasdaq-100" {
+  write_config 0 "^GSPC,^NDX"
+  make_fixture 0 4102444800 drop
+
+  run "$PROJECT_ROOT/monitor.sh"
+
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'query1.finance.yahoo.com' "$YAHOO_REQUEST_LOG")" -eq 2 ]
+  [[ "$(cat "$YAHOO_REQUEST_LOG")" == *"%5EGSPC"* ]]
+  [[ "$(cat "$YAHOO_REQUEST_LOG")" == *"%5ENDX"* ]]
+  [ "$(grep -c 'api.telegram.org' "$TELEGRAM_REQUEST_LOG")" -eq 2 ]
+  [[ "$(cat "$TELEGRAM_REQUEST_LOG")" == *"<b>S&amp;P 500 Alert</b>"* ]]
+  [[ "$(cat "$TELEGRAM_REQUEST_LOG")" == *"<b>Nasdaq-100 Alert</b>"* ]]
 }
 
 make_fixture() {

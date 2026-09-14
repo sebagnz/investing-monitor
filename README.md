@@ -1,6 +1,6 @@
-# SP500 Monitor
+# Investing Monitor
 
-Small shell-script monitor that fetches S&P 500 data from Yahoo Finance,
+Small shell-script monitor that fetches S&P 500 and Nasdaq-100 data from Yahoo Finance,
 calculates the 200-day simple moving average and 14-day RSI, and sends the
 results to Telegram at a configurable interval using cron. Alerts are only
 evaluated while the regular market session is open.
@@ -40,7 +40,8 @@ The installer will:
 1. Download the latest `monitor.sh`
 2. Install it as `~/.local/bin/investing-monitor`
 3. Create `~/.config/investing-monitor/config` if it does not already exist
-4. Prompt for the Telegram bot token, chat ID, frequency, and distance threshold
+4. Prompt for the Telegram bot token, chat ID, frequency, distance threshold,
+   and Yahoo Finance symbols
 5. Add a cron entry that runs at the configured frequency
 6. Write output to `~/.config/investing-monitor/investing-monitor.log`
 
@@ -49,8 +50,8 @@ When `install.sh` is run from a local checkout, it installs the sibling
 the repository.
 
 The bot token is entered without being displayed. If a Telegram value,
-monitoring frequency, or distance threshold is already configured, the
-installer offers to keep its current value.
+monitoring frequency, distance threshold, or symbol list is already configured,
+the installer offers to keep its current value.
 
 ## Configure
 
@@ -68,6 +69,7 @@ TELEGRAM_BOT_TOKEN="your-token"
 TELEGRAM_CHAT_ID="your-chat-id"
 FREQUENCY_MINUTES=30
 DISTANCE_THRESHOLD=0
+SYMBOLS="^GSPC,^NDX"
 ```
 
 The config file is created with permissions `600`.
@@ -79,6 +81,10 @@ cron entry after you confirm or change the frequency.
 is sent only when the calculated distance is less than this value. For example,
 `0` alerts below the SMA, while `-5` alerts only when the index is more than 5%
 below it.
+
+`SYMBOLS` is a comma-separated list of Yahoo Finance symbols. It defaults to
+`^GSPC,^NDX`, which tracks the S&P 500 and Nasdaq-100 indexes. The same distance
+threshold is applied to every configured symbol.
 
 ## Run manually
 
