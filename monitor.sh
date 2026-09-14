@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+CURL_COMMAND="${CURL_COMMAND:-curl}"
 
 CONFIG_FILE="$HOME/.config/investing-monitor/config"
 
@@ -22,22 +23,47 @@ if [[ ! "$DISTANCE_THRESHOLD" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
   exit 1
 fi
 
-for dependency in curl jq; do
-  if ! command -v "$dependency" >/dev/null 2>&1; then
-    echo "Missing dependency: $dependency" >&2
-    exit 1
-  fi
-done
+if ! command -v "$CURL_COMMAND" >/dev/null 2>&1; then
+  echo "Missing dependency: curl" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Missing dependency: jq" >&2
+  exit 1
+fi
 
 echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Running SP500 monitor"
 
 YAHOO_URL="https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1y"
 
 DATA=$(
-  curl -fsSL \
+  "$CURL_COMMAND" -fsSL \
     -A "Mozilla/5.0" \
     "$YAHOO_URL"
 )
+
+MARKET_STATUS=$(
+  echo "$DATA" | jq -r '
+    .chart.result[0].meta.currentTradingPeriod.regular as $regular
+    | if (($regular.start | type) != "number" or ($regular.end | type) != "number") then
+        "unknown"
+      elif now >= $regular.start and now < $regular.end then
+        "open"
+      else
+        "closed"
+      end
+  '
+)
+
+if [[ "$MARKET_STATUS" != "open" ]]; then
+  if [[ "$MARKET_STATUS" == "closed" ]]; then
+    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Market is closed; no alert sent"
+  else
+    echo "$(date '+%Y-%m-%dT%H:%M:%S%z'): Could not determine market status; no alert sent" >&2
+  fi
+  exit 0
+fi
 
 RESULT=$(
   echo "$DATA" | jq -r --argjson threshold "$DISTANCE_THRESHOLD" '
@@ -105,7 +131,7 @@ if [[ -z "$RESULT" ]]; then
   exit 0
 fi
 
-curl -fsSL \
+"$CURL_COMMAND" -fsSL \
   -X POST \
   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
   -d "chat_id=${TELEGRAM_CHAT_ID}" \

@@ -2,15 +2,18 @@
 
 Small shell-script monitor that fetches S&P 500 data from Yahoo Finance,
 calculates the 200-day simple moving average and 14-day RSI, and sends the
-results to Telegram at a configurable interval using cron.
+results to Telegram at a configurable interval using cron. Alerts are only
+evaluated while the regular market session is open.
 
 ## Repository structure
 
 ```text
 investing-monitor/
+├── Makefile
 ├── install.sh
 ├── uninstall.sh
 ├── monitor.sh
+├── test/
 ├── config.example
 ├── .gitignore
 └── README.md
@@ -81,6 +84,22 @@ below it.
 
 ```bash
 ~/.local/bin/investing-monitor
+```
+
+## Test
+
+Install [Bats-core](https://bats-core.readthedocs.io/en/stable/installation.html),
+then run:
+
+```bash
+make test
+```
+
+The tests use temporary configuration and mocked HTTP requests. They do not
+contact Yahoo Finance or Telegram. Run the Bash syntax checks separately with:
+
+```bash
+make check
 ```
 
 ## Check cron
