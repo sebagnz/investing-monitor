@@ -1,8 +1,0 @@
-# Copy/edit this file at:
-# ~/.config/investing-monitor/config
-
-TELEGRAM_BOT_TOKEN=""
-TELEGRAM_CHAT_ID=""
-FREQUENCY_MINUTES=30
-DISTANCE_THRESHOLD=2
-SYMBOLS="^GSPC,^NDX"

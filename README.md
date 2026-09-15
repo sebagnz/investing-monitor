@@ -1,31 +1,36 @@
 # Investing Monitor
 
-Small shell-script monitor that fetches S&P 500 and Nasdaq-100 data from Yahoo Finance,
-calculates the 200-day simple moving average and 14-day RSI, and sends the
-results to Telegram at a configurable interval using cron. Alerts are only
+Small TypeScript monitor that fetches S&P 500 and Nasdaq-100 data from Yahoo
+Finance, calculates the 200-day simple moving average and 14-day RSI, and sends
+the results to Telegram at a configurable interval using cron. Alerts are only
 evaluated while the regular market session is open.
+
+Release builds are standalone executables compiled with Bun. Bun, Node.js, and
+third-party runtime packages are not required on the machine running the
+monitor.
 
 ## Repository structure
 
 ```text
 investing-monitor/
-├── Makefile
+├── .github/workflows/
+├── bun.lock
 ├── install.sh
 ├── uninstall.sh
-├── monitor.sh
-├── test/
-├── config.example
+├── package.json
+├── src/
+├── tsconfig.json
 ├── .gitignore
 └── README.md
 ```
 
 ## Requirements
 
-- Linux
+- Linux or macOS on x64 or ARM64
 - `bash`
 - `curl`
-- `jq`
 - `cron` / `crontab`
+- `sha256sum` or `shasum`
 
 ## Install
 
@@ -35,19 +40,26 @@ Run:
 curl -fsSL https://raw.githubusercontent.com/sebagnz/investing-monitor/main/install.sh | bash
 ```
 
-The installer will:
+The bootstrap installer will:
 
-1. Download the latest `monitor.sh`
-2. Install it as `~/.local/bin/investing-monitor`
-3. Create `~/.config/investing-monitor/config` if it does not already exist
-4. Prompt for the Telegram bot token, chat ID, frequency, distance threshold,
-   and Yahoo Finance symbols
-5. Add a cron entry that runs at the configured frequency
-6. Write output to `~/.config/investing-monitor/investing-monitor.log`
+1. Detect the operating system, CPU architecture, and Linux libc
+2. Download and verify the matching executable from the latest GitHub release
+3. Install it as `~/.local/bin/investing-monitor`
+4. Run `investing-monitor configure`
 
-When `install.sh` is run from a local checkout, it installs the sibling
-`monitor.sh` directly. When piped from GitHub, it downloads `monitor.sh` from
-the repository.
+The TypeScript configuration command then prompts for the Telegram bot token,
+chat ID, frequency, distance threshold, and Yahoo Finance symbols; writes the
+private config file; and installs or updates the cron entry.
+
+Set `INVESTING_MONITOR_VERSION` to install a specific release tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sebagnz/investing-monitor/main/install.sh \
+  | INVESTING_MONITOR_VERSION=v1.0.0 bash
+```
+
+When `install.sh` is run from a local checkout after `bun run build`, it
+installs `dist/investing-monitor` directly. Otherwise, it downloads a release.
 
 The bot token is entered without being displayed. If a Telegram value,
 monitoring frequency, distance threshold, or symbol list is already configured,
@@ -55,8 +67,14 @@ the installer offers to keep its current value.
 
 ## Configure
 
-The installer configures these values interactively. To change them manually,
-edit:
+Run the configuration command again at any time to change settings or repair
+the cron entry:
+
+```bash
+~/.local/bin/investing-monitor configure
+```
+
+You can also edit the configuration manually:
 
 ```bash
 nano ~/.config/investing-monitor/config
@@ -74,8 +92,8 @@ SYMBOLS="^GSPC,^NDX"
 
 The config file is created with permissions `600`.
 
-`FREQUENCY_MINUTES` must be an integer from 1 to 59. The installer updates the
-cron entry after you confirm or change the frequency.
+`FREQUENCY_MINUTES` must be an integer from 1 to 59. The configuration command
+updates the cron entry after you confirm or change the frequency.
 
 `DISTANCE_THRESHOLD` is a signed percentage relative to the SMA 200. An alert
 is sent only when the calculated distance is less than this value. For example,
@@ -89,24 +107,39 @@ threshold is applied to every configured symbol.
 ## Run manually
 
 ```bash
-~/.local/bin/investing-monitor
+~/.local/bin/investing-monitor run
 ```
+
+Running the executable without a command remains equivalent to `run`.
 
 ## Test
 
-Install [Bats-core](https://bats-core.readthedocs.io/en/stable/installation.html),
-then run:
+Development requires [Bun](https://bun.com). Install dependencies and run the
+test suite with:
 
 ```bash
-make test
+bun install --frozen-lockfile
+bun test
 ```
 
 The tests use temporary configuration and mocked HTTP requests. They do not
-contact Yahoo Finance or Telegram. Run the Bash syntax checks separately with:
+contact Yahoo Finance or Telegram. Run strict TypeScript and Bash syntax checks
+with:
 
 ```bash
-make check
+bun run typecheck
+bash -n install.sh uninstall.sh
 ```
+
+Build a standalone executable for the current platform with:
+
+```bash
+bun run build
+```
+
+Version tags matching `v*` trigger the release workflow. It cross-compiles
+glibc and musl Linux executables plus macOS executables for x64 and ARM64, then
+publishes them with SHA-256 checksums.
 
 ## Check cron
 
@@ -117,7 +150,7 @@ crontab -l
 You should see:
 
 ```cron
-*/30 * * * * ~/.local/bin/investing-monitor
+*/30 * * * * ~/.local/bin/investing-monitor run
 ```
 
 The actual installed entry uses the configured frequency and expanded home
@@ -137,9 +170,10 @@ Run the same installation command again:
 curl -fsSL https://raw.githubusercontent.com/sebagnz/investing-monitor/main/install.sh | bash
 ```
 
-The current script will be replaced with the latest version from GitHub.
+The current executable will be replaced with the latest GitHub release.
 
-The existing config file will not be overwritten.
+Existing configuration values are offered as defaults and preserved when you
+choose to keep them.
 
 ## Uninstall
 
