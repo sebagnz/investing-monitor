@@ -1,0 +1,15 @@
+{
+  "name": "investing-monitor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile --minify --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/cli.ts --outfile dist/investing-monitor"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "5.9.3"
+  }
+}
