@@ -129,7 +129,7 @@ describe("configuration", () => {
 });
 
 describe("monitor", () => {
-  test("tracks the S&P 500 and Nasdaq-100", async () => {
+  test("combines S&P 500 and Nasdaq-100 alerts into one message", async () => {
     const ctx = harness(yahooFixture(OPEN_START, OPEN_END, "drop"));
 
     await expect(
@@ -146,13 +146,29 @@ describe("monitor", () => {
     expect(yahooRequests).toHaveLength(2);
     expect(yahooRequests[0]?.url).toContain("%5EGSPC");
     expect(yahooRequests[1]?.url).toContain("%5ENDX");
-    expect(telegramRequests).toHaveLength(2);
+    expect(telegramRequests).toHaveLength(1);
     expect(
       new URLSearchParams(String(telegramRequests[0]?.init?.body)).get("text"),
     ).toContain("<b>S&amp;P 500 Alert</b>");
     expect(
-      new URLSearchParams(String(telegramRequests[1]?.init?.body)).get("text"),
+      new URLSearchParams(String(telegramRequests[0]?.init?.body)).get("text"),
     ).toContain("<b>Nasdaq-100 Alert</b>");
+  });
+
+  test("reports a failed combined message delivery", async () => {
+    const ctx = harness(yahooFixture(OPEN_START, OPEN_END, "drop"));
+    const successfulFetch = ctx.dependencies.fetch;
+    ctx.dependencies.fetch = async (input, init) => {
+      if (String(input).includes("api.telegram.org")) {
+        return new Response("upstream error", { status: 500 });
+      }
+      return successfulFetch(input, init);
+    };
+
+    await expect(
+      runMonitor(config({ symbols: ["^GSPC", "^NDX"] }), ctx.dependencies),
+    ).resolves.toBe(false);
+    expect(ctx.errors.join("\n")).toContain("Failed to send combined alerts");
   });
 
   test("does not alert while the market is closed", async () => {

@@ -102,7 +102,9 @@ below it.
 
 `SYMBOLS` is a comma-separated list of Yahoo Finance symbols. It defaults to
 `^GSPC,^NDX`, which tracks the S&P 500 and Nasdaq-100 indexes. The same distance
-threshold is applied to every configured symbol.
+threshold is applied to every configured symbol. All qualifying alerts from a
+monitoring run are combined into one Telegram message, with a section for each
+symbol. If no symbols qualify, no message is sent.
 
 ## Run manually
 
@@ -139,14 +141,19 @@ bun run build
 
 ## Release a version
 
-After merging the changes into `main`, update your local checkout and push an
-annotated version tag. Replace `v1.0.0` with the next version:
+Track the current version in `package.json` using semantic versioning. Update
+that version in the release commit, then create a matching annotated Git tag
+with a `v` prefix (for example, `1.1.0` in `package.json` and `v1.1.0` in Git).
+GitHub Releases identify the published versions.
+
+After merging the version update and changes into `main`, update your local
+checkout and push the matching annotated version tag:
 
 ```bash
 git switch main
 git pull --ff-only origin main
-git tag -a v1.0.0 -m "Release v1.0.0"
-git push origin v1.0.0
+git tag -a v1.1.0 -m "Release v1.1.0"
+git push origin v1.1.0
 ```
 
 Pushing a tag matching `v*` triggers the **Release** workflow. Pushing changes

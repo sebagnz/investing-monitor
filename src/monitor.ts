@@ -226,7 +226,7 @@ async function monitorSymbol(
   symbol: string,
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Promise<boolean> {
+): Promise<boolean | string> {
   const time = (): string => timestamp(dependencies.now());
 
   if (!VALID_SYMBOL.test(symbol)) {
@@ -299,26 +299,8 @@ async function monitorSymbol(
     return true;
   }
 
-  const body = new URLSearchParams({
-    chat_id: config.telegramChatId,
-    parse_mode: "HTML",
-    text: alert,
-  });
-
-  try {
-    const telegramResponse = await dependencies.fetch(
-      `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`,
-      { method: "POST", body },
-    );
-    if (!telegramResponse.ok) throw new Error(`HTTP ${telegramResponse.status}`);
-    dependencies.log(await telegramResponse.text());
-  } catch {
-    dependencies.error(`${time()}: Failed to send ${symbol} alert`);
-    return false;
-  }
-
   dependencies.log(`${time()}: ${symbol} done`);
-  return true;
+  return alert;
 }
 
 export async function runMonitor(
@@ -327,9 +309,33 @@ export async function runMonitor(
 ): Promise<boolean> {
   dependencies.log(`${timestamp(dependencies.now())}: Running investing monitor`);
   let succeeded = true;
+  const alerts: string[] = [];
 
   for (const symbol of config.symbols) {
-    if (!(await monitorSymbol(symbol, config, dependencies))) {
+    const result = await monitorSymbol(symbol, config, dependencies);
+    if (result === false) {
+      succeeded = false;
+    } else if (typeof result === "string") {
+      alerts.push(result);
+    }
+  }
+
+  if (alerts.length > 0) {
+    const body = new URLSearchParams({
+      chat_id: config.telegramChatId,
+      parse_mode: "HTML",
+      text: alerts.join("\n\n"),
+    });
+
+    try {
+      const response = await dependencies.fetch(
+        `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`,
+        { method: "POST", body },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      dependencies.log(await response.text());
+    } catch {
+      dependencies.error(`${timestamp(dependencies.now())}: Failed to send combined alerts`);
       succeeded = false;
     }
   }
