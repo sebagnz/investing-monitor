@@ -137,9 +137,30 @@ Build a standalone executable for the current platform with:
 bun run build
 ```
 
-Version tags matching `v*` trigger the release workflow. It cross-compiles
-glibc and musl Linux executables plus macOS executables for x64 and ARM64, then
-publishes them with SHA-256 checksums.
+## Release a version
+
+After merging the changes into `main`, update your local checkout and push an
+annotated version tag. Replace `v1.0.0` with the next version:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
+```
+
+Pushing a tag matching `v*` triggers the **Release** workflow. Pushing changes
+to `main` alone does not create a release. The workflow runs tests and
+type-checking, cross-compiles glibc and musl Linux executables plus macOS
+executables for x64 and ARM64, and creates a GitHub Release with generated
+release notes and SHA-256 checksums.
+
+Check the repository's **Actions** tab for the workflow result, then verify
+that all six executables and `checksums.txt` appear under **Releases**. The
+curl installer can then download the new release.
+
+Use a new version tag for subsequent releases, such as `v1.0.1`. Do not move or
+reuse a tag after its release has been published.
 
 ## Check cron
 
