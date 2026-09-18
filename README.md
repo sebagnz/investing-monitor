@@ -147,6 +147,11 @@ bun run build
 
 ## Release a version
 
+After committing your changes, run `bun run release:minor` to bump the minor
+version, create a release commit and annotated `v` tag, and push the current
+branch and tag to `origin`. This command requires npm and Node.js and refuses
+to run with uncommitted changes. Pushing the tag triggers the release workflow.
+
 Track the current version in `package.json` using semantic versioning. Update
 that version in the release commit, then create a matching annotated Git tag
 with a `v` prefix (for example, `1.1.0` in `package.json` and `v1.1.0` in Git).
