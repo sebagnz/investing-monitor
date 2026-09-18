@@ -48,7 +48,7 @@ The bootstrap installer will:
 4. Run `investing-monitor configure`
 
 The TypeScript configuration command then prompts for the Telegram bot token,
-chat ID, frequency, distance threshold, and Yahoo Finance symbols; writes the
+chat ID, frequency, MA and RSI thresholds, and Yahoo Finance symbols; writes the
 private config file; and installs or updates the cron entry.
 
 Set `INVESTING_MONITOR_VERSION` to install a specific release tag:
@@ -62,7 +62,7 @@ When `install.sh` is run from a local checkout after `bun run build`, it
 installs `dist/investing-monitor` directly. Otherwise, it downloads a release.
 
 The bot token is entered without being displayed. If a Telegram value,
-monitoring frequency, distance threshold, or symbol list is already configured,
+monitoring frequency, thresholds, or symbol list is already configured,
 the installer offers to keep its current value.
 
 ## Configure
@@ -86,7 +86,8 @@ For example:
 TELEGRAM_BOT_TOKEN="your-token"
 TELEGRAM_CHAT_ID="your-chat-id"
 FREQUENCY_MINUTES=30
-DISTANCE_THRESHOLD=0
+MA_DISTANCE_THRESHOLD=4
+RSI_DISTANCE_THRESHOLD=40
 SYMBOLS="^GSPC,^NDX"
 ```
 
@@ -95,14 +96,19 @@ The config file is created with permissions `600`.
 `FREQUENCY_MINUTES` must be an integer from 1 to 59. The configuration command
 updates the cron entry after you confirm or change the frequency.
 
-`DISTANCE_THRESHOLD` is a signed percentage relative to the SMA 200. An alert
-is sent only when the calculated distance is less than this value. For example,
-`0` alerts below the SMA, while `-5` alerts only when the index is more than 5%
-below it.
+An asset qualifies when its 14-day RSI is strictly below `RSI_DISTANCE_THRESHOLD`
+**or** its signed price distance from the 200-day SMA is strictly below
+`MA_DISTANCE_THRESHOLD`. Defaults are 40 and 4%, respectively. RSI thresholds
+must be between 0 and 100. MA distance is calculated as
+`(price / SMA200 - 1) * 100`; negative thresholds select prices below the SMA.
+
+`MA_DISTANCE_THRESHOLD` replaces `DISTANCE_THRESHOLD`. Existing configs still
+use the old key as a fallback when the new key is absent. Running `configure`
+preserves that value and saves it under the new name, and lets you set the RSI
+threshold too.
 
 `SYMBOLS` is a comma-separated list of Yahoo Finance symbols. It defaults to
-`^GSPC,^NDX`, which tracks the S&P 500 and Nasdaq-100 indexes. The same distance
-threshold is applied to every configured symbol. All qualifying alerts from a
+`^GSPC,^NDX`, which tracks the S&P 500 and Nasdaq-100 indexes. All qualifying alerts from a
 monitoring run are combined into one Telegram message, with a section for each
 symbol. If no symbols qualify, no message is sent.
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   configure,
+  readConfig,
   saveConfig,
   type ConfigureDependencies,
   type ConfigureOptions,
@@ -63,6 +64,7 @@ describe("configure", () => {
       "",
       "",
       "",
+      "",
     ]);
 
     await configure(options, ctx.dependencies);
@@ -71,7 +73,8 @@ describe("configure", () => {
       telegramBotToken: "test-token",
       telegramChatId: "test-chat",
       frequencyMinutes: 30,
-      distanceThreshold: 2,
+      maDistanceThreshold: 4,
+      rsiDistanceThreshold: 40,
       symbols: "^GSPC,^NDX",
     });
     expect(ctx.questions[0]).toEqual({
@@ -90,10 +93,11 @@ describe("configure", () => {
       telegramBotToken: "existing-token",
       telegramChatId: "existing-chat",
       frequencyMinutes: 15,
-      distanceThreshold: -5.5,
+      maDistanceThreshold: -5.5,
+      rsiDistanceThreshold: 35,
       symbols: "^GSPC,^NDX",
     };
-    const ctx = harness(["", "", "", "", ""], existing);
+    const ctx = harness(["", "", "", "", "", ""], existing);
 
     await configure(options, ctx.dependencies);
 
@@ -102,7 +106,8 @@ describe("configure", () => {
       "Telegram bot token is currently [hidden]. Keep it? [Y/n] ",
       'Telegram chat ID is currently "existing-chat". Keep it? [Y/n] ',
       'frequency in minutes (1-59) is currently "15". Keep it? [Y/n] ',
-      'distance threshold percentage (for example, 0 or -5.5) is currently "-5.5". Keep it? [Y/n] ',
+      'MA distance threshold percentage (for example, 4 or -5.5) is currently "-5.5". Keep it? [Y/n] ',
+      'RSI threshold (0-100) is currently "35". Keep it? [Y/n] ',
       'Yahoo Finance symbols (comma-separated) is currently "^GSPC,^NDX". Keep it? [Y/n] ',
     ]);
     expect(ctx.questions[0]?.message).not.toContain(
@@ -123,6 +128,10 @@ describe("configure", () => {
         "not-a-number",
         "-3",
         "n",
+        "101",
+        "-1",
+        "35",
+        "n",
         "^GSPC,,^NDX",
         "AAPL,MSFT",
       ],
@@ -137,19 +146,33 @@ describe("configure", () => {
     await configure(options, ctx.dependencies);
 
     expect(ctx.writtenConfig?.frequencyMinutes).toBe(10);
-    expect(ctx.writtenConfig?.distanceThreshold).toBe(-3);
+    expect(ctx.writtenConfig?.maDistanceThreshold).toBe(-3);
+    expect(ctx.writtenConfig?.rsiDistanceThreshold).toBe(35);
     expect(ctx.writtenConfig?.symbols).toBe("AAPL,MSFT");
     expect(ctx.writtenCrontab).not.toContain("old.log");
     expect(ctx.writtenCrontab).toContain("30 1 * * * /usr/local/bin/backup");
     expect(ctx.logs).toContain("Frequency must be an integer between 1 and 59.");
-    expect(ctx.logs).toContain("Distance threshold must be a number.");
     expect(ctx.logs).toContain("Symbols must be a comma-separated list without empty entries.");
+  });
+
+  test("migrates the legacy MA threshold during configuration", async () => {
+    const file = Bun.file(`${process.env.TMPDIR ?? "/tmp"}/legacy-threshold-${crypto.randomUUID()}`);
+    try {
+      await Bun.write(file, "TELEGRAM_BOT_TOKEN=test-token\nTELEGRAM_CHAT_ID=test-chat\nDISTANCE_THRESHOLD=-5.5\n");
+      const existing = await readConfig(file.name!);
+      const ctx = harness(["", "", "", "", "", ""], existing);
+      await configure(options, ctx.dependencies);
+      expect(ctx.writtenConfig?.maDistanceThreshold).toBe(-5.5);
+      expect(ctx.writtenConfig?.rsiDistanceThreshold).toBe(40);
+    } finally {
+      await file.delete();
+    }
   });
 
   test("does not duplicate its managed cron entry", async () => {
     const managed =
       "*/30 * * * * /home/test/.local/bin/investing-monitor run >> /home/test/.config/investing-monitor/investing-monitor.log 2>&1 # investing-monitor";
-    const ctx = harness(["token", "chat", "", "", ""], {}, `${managed}\n`);
+    const ctx = harness(["token", "chat", "", "", "", ""], {}, `${managed}\n`);
 
     await configure(options, ctx.dependencies);
 
@@ -166,7 +189,8 @@ describe("saveConfig", () => {
       telegramBotToken: 'token-with-"quotes"',
       telegramChatId: "test-chat",
       frequencyMinutes: 30,
-      distanceThreshold: -2.5,
+      maDistanceThreshold: 4,
+      rsiDistanceThreshold: 40,
       symbols: "^GSPC,^NDX",
     });
 
@@ -174,6 +198,10 @@ describe("saveConfig", () => {
     const mode = (await Bun.file(path).stat()).mode & 0o777;
     expect(contents).toContain('TELEGRAM_BOT_TOKEN="token-with-\\"quotes\\""');
     expect(contents).toContain("FREQUENCY_MINUTES=30");
+    expect(contents).toContain("MA_DISTANCE_THRESHOLD=4");
+    expect(contents).toContain("RSI_DISTANCE_THRESHOLD=40");
+    expect(contents).not.toMatch(/^DISTANCE_THRESHOLD=/m);
+    await expect(readConfig(path)).resolves.toMatchObject({ maDistanceThreshold: 4, rsiDistanceThreshold: 40 });
     expect(mode).toBe(0o600);
   });
 });

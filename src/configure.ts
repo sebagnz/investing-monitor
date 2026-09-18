@@ -12,13 +12,20 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { parseConfigFile } from "./monitor";
+import {
+  parseConfigFile,
+  isThreshold,
+  isRsiThreshold,
+  DEFAULT_MA_DISTANCE_THRESHOLD,
+  DEFAULT_RSI_DISTANCE_THRESHOLD,
+} from "./monitor";
 
 export interface StoredConfig {
   telegramBotToken: string;
   telegramChatId: string;
   frequencyMinutes: number;
-  distanceThreshold: number;
+  maDistanceThreshold: number;
+  rsiDistanceThreshold: number;
   symbols: string;
 }
 
@@ -42,9 +49,7 @@ export interface ConfigureDependencies {
 }
 
 const DEFAULT_FREQUENCY = 30;
-const DEFAULT_THRESHOLD = 2;
 const DEFAULT_SYMBOLS = "^GSPC,^NDX";
-const NUMBER_PATTERN = /^-?[0-9]+(?:\.[0-9]+)?$/;
 
 function isFrequency(value: string): boolean {
   return /^(?:[1-9]|[1-5][0-9])$/.test(value);
@@ -98,7 +103,8 @@ export async function readConfig(path: string): Promise<Partial<StoredConfig>> {
 
   const values = parseConfigFile(contents);
   const frequency = values.get("FREQUENCY_MINUTES");
-  const threshold = values.get("DISTANCE_THRESHOLD");
+  const maThreshold = values.get("MA_DISTANCE_THRESHOLD") ?? values.get("DISTANCE_THRESHOLD");
+  const rsiThreshold = values.get("RSI_DISTANCE_THRESHOLD");
 
   return {
     ...(values.has("TELEGRAM_BOT_TOKEN") && {
@@ -108,7 +114,8 @@ export async function readConfig(path: string): Promise<Partial<StoredConfig>> {
       telegramChatId: values.get("TELEGRAM_CHAT_ID"),
     }),
     ...(frequency !== undefined && { frequencyMinutes: Number(frequency) }),
-    ...(threshold !== undefined && { distanceThreshold: Number(threshold) }),
+    ...(maThreshold !== undefined && { maDistanceThreshold: Number(maThreshold) }),
+    ...(rsiThreshold !== undefined && { rsiDistanceThreshold: Number(rsiThreshold) }),
     ...(values.has("SYMBOLS") && { symbols: values.get("SYMBOLS") }),
   };
 }
@@ -123,7 +130,8 @@ export async function saveConfig(
     `TELEGRAM_BOT_TOKEN=${quoteConfigValue(config.telegramBotToken)}`,
     `TELEGRAM_CHAT_ID=${quoteConfigValue(config.telegramChatId)}`,
     `FREQUENCY_MINUTES=${config.frequencyMinutes}`,
-    `DISTANCE_THRESHOLD=${config.distanceThreshold}`,
+    `MA_DISTANCE_THRESHOLD=${config.maDistanceThreshold}`,
+    `RSI_DISTANCE_THRESHOLD=${config.rsiDistanceThreshold}`,
     `SYMBOLS=${quoteConfigValue(config.symbols)}`,
     "",
   ].join("\n");
@@ -243,13 +251,21 @@ export async function configure(
     isFrequency,
     "Frequency must be an integer between 1 and 59.",
   );
-  const thresholdText = await promptForValue(
+  const maThresholdText = await promptForValue(
     dependencies,
-    "distance threshold percentage (for example, 0 or -5.5)",
-    String(existing.distanceThreshold ?? DEFAULT_THRESHOLD),
+    "MA distance threshold percentage (for example, 4 or -5.5)",
+    String(existing.maDistanceThreshold ?? DEFAULT_MA_DISTANCE_THRESHOLD),
     false,
-    (value) => NUMBER_PATTERN.test(value),
-    "Distance threshold must be a number.",
+    isThreshold,
+    "MA distance threshold must be a finite number.",
+  );
+  const rsiThresholdText = await promptForValue(
+    dependencies,
+    "RSI threshold (0-100)",
+    String(existing.rsiDistanceThreshold ?? DEFAULT_RSI_DISTANCE_THRESHOLD),
+    false,
+    isRsiThreshold,
+    "RSI threshold must be a number between 0 and 100.",
   );
   const symbols = await promptForValue(
     dependencies,
@@ -264,7 +280,8 @@ export async function configure(
     telegramBotToken,
     telegramChatId,
     frequencyMinutes: Number(frequencyText),
-    distanceThreshold: Number(thresholdText),
+    maDistanceThreshold: Number(maThresholdText),
+    rsiDistanceThreshold: Number(rsiThresholdText),
     symbols: symbols
       .split(",")
       .map((symbol) => symbol.trim())

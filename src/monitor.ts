@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 export interface MonitorConfig {
   telegramBotToken: string;
   telegramChatId: string;
-  distanceThreshold: number;
+  maDistanceThreshold: number;
+  rsiDistanceThreshold: number;
   symbols: string[];
 }
 
@@ -32,6 +33,17 @@ interface YahooChart {
       };
     }>;
   };
+}
+
+export const DEFAULT_MA_DISTANCE_THRESHOLD = 4;
+export const DEFAULT_RSI_DISTANCE_THRESHOLD = 40;
+
+export function isThreshold(value: string): boolean {
+  return /^-?[0-9]+(?:\.[0-9]+)?$/.test(value) && Number.isFinite(Number(value));
+}
+
+export function isRsiThreshold(value: string): boolean {
+  return isThreshold(value) && Number(value) >= 0 && Number(value) <= 100;
 }
 
 const DEFAULT_SYMBOLS = ["^GSPC", "^NDX"];
@@ -112,7 +124,6 @@ export async function loadConfig(path: string): Promise<MonitorConfig> {
   const values = parseConfigFile(contents);
   const telegramBotToken = values.get("TELEGRAM_BOT_TOKEN") ?? "";
   const telegramChatId = values.get("TELEGRAM_CHAT_ID") ?? "";
-  const thresholdText = values.get("DISTANCE_THRESHOLD") ?? "";
 
   if (telegramBotToken === "") {
     throw new Error("TELEGRAM_BOT_TOKEN is not set");
@@ -120,8 +131,17 @@ export async function loadConfig(path: string): Promise<MonitorConfig> {
   if (telegramChatId === "") {
     throw new Error("TELEGRAM_CHAT_ID is not set");
   }
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/.test(thresholdText)) {
-    throw new Error("DISTANCE_THRESHOLD must be a number.");
+
+  const maThresholdText = values.get("MA_DISTANCE_THRESHOLD")
+    ?? values.get("DISTANCE_THRESHOLD")
+    ?? String(DEFAULT_MA_DISTANCE_THRESHOLD);
+  const rsiThresholdText = values.get("RSI_DISTANCE_THRESHOLD")
+    ?? String(DEFAULT_RSI_DISTANCE_THRESHOLD);
+  if (!isThreshold(maThresholdText)) {
+    throw new Error("MA_DISTANCE_THRESHOLD must be a finite number.");
+  }
+  if (!isRsiThreshold(rsiThresholdText)) {
+    throw new Error("RSI_DISTANCE_THRESHOLD must be a number between 0 and 100.");
   }
 
   const symbolsText = values.get("SYMBOLS") ?? DEFAULT_SYMBOLS.join(",");
@@ -133,7 +153,8 @@ export async function loadConfig(path: string): Promise<MonitorConfig> {
   return {
     telegramBotToken,
     telegramChatId,
-    distanceThreshold: Number(thresholdText),
+    maDistanceThreshold: Number(maThresholdText),
+    rsiDistanceThreshold: Number(rsiThresholdText),
     symbols,
   };
 }
@@ -173,7 +194,8 @@ function signed(value: number): string {
 function calculateAlert(
   displayName: string,
   closes: number[],
-  threshold: number,
+  maThreshold: number,
+  rsiThreshold: number,
 ): string | undefined {
   if (closes.length < 200) {
     throw new Error("Yahoo Finance returned fewer than 200 closing prices");
@@ -186,10 +208,6 @@ function calculateAlert(
   const dailyVariation = (price / previousClose - 1) * 100;
   const distance = (price / sma200 - 1) * 100;
 
-  if (distance >= threshold) {
-    return undefined;
-  }
-
   const rsiCloses = closes.slice(-15);
   let gains = 0;
   let losses = 0;
@@ -198,12 +216,14 @@ function calculateAlert(
     if (change > 0) gains += change;
     if (change < 0) losses -= change;
   }
-  const averageGain = gains / 14;
-  const averageLoss = losses / 14;
   const rsi14 =
-    averageLoss === 0
+    losses === 0
       ? 100
-      : 100 - 100 / (1 + averageGain / averageLoss);
+      : (gains / (gains + losses)) * 100;
+  if (!(rsi14 < rsiThreshold || distance < maThreshold)) {
+    return undefined;
+  }
+
   const variationIndicator = dailyVariation >= 0 ? "🟢" : "🔴";
   const rsiStatus =
     rsi14 >= 70
@@ -285,7 +305,8 @@ async function monitorSymbol(
     alert = calculateAlert(
       displayNameForSymbol(symbol),
       closes,
-      config.distanceThreshold,
+      config.maDistanceThreshold,
+      config.rsiDistanceThreshold,
     );
   } catch (error) {
     dependencies.error(`${time()}: ${(error as Error).message}`);
@@ -294,7 +315,7 @@ async function monitorSymbol(
 
   if (alert === undefined) {
     dependencies.log(
-      `${time()}: ${symbol} distance is not below ${config.distanceThreshold}%; no alert sent`,
+      `${time()}: ${symbol} RSI is not below ${config.rsiDistanceThreshold} and MA200 distance is not below ${config.maDistanceThreshold}%; no alert sent`,
     );
     return true;
   }
